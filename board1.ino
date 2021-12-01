@@ -17,16 +17,23 @@ int liters = 0;                                           // number of liters th
 int old_liters = 0;
 #define PULSES_PER_LITER 165                              // 165 pulses from the flux sensor tell that a liter has passed
 
-//// PH sensor reading variable ////
-float pH_value = 4;                                       // pH value read from the pH sensor (reliable range: 4.5 <-> 9.5)
-//// Electrovalves status variables ////
-int EV2_status = 0;
-int EV3_status = 0;
-int EV4_status = 0;
-int EV5_status = 0;
+//// Sanitizer level pumps status////
+volatile int P1_status = 0;                               //status of the sanitizer pump 1 (0: OFF, 1: ON)
+volatile int P2_status = 0;                               //status of the sanitizer pump 2 (0: OFF, 1: ON)
+volatile int P1_pulses = 0;                               //number of impulses to send to the sanitizer pump 1
+volatile int P2_pulses = 0;                               //number of impulses to send to the sanitizer pump 2
+volatile int p1pulsescounter = 0;                         //counter used to perform requested impulses on pump 1
+volatile int p2pulsescounter = 0;                         //counter used to perform requested impulses on pump 2
+volatile int p1toggle = 1;                                //variable used for toggling pump 1 pin
+volatile int p2toggle = 1;                                //variable used for toggling pump 2 pin
+//// Chlorine sensor reading variable ////
+float chlorine_concentration = 0.1;                       // concentration of chlorine given by crs1 (range: 0.1 ppm - 20 ppm)
+// Level sensor status
+int SL1_status;                                           // 0: low level, 1: high level
+int old_SL1_status;
 //// firmware version of the device and device id ////
 #define SW_VERSION "0.1"
-#define DEVICE_ID "geniale board 3"     
+#define DEVICE_ID "geniale board 1"     
 //// Other handy variables ////
 volatile bool new_request = false;                        // flag that tells if a new request has arrived from the hub
 volatile int received_msg_id = 0;                         // used for ack mechanism
@@ -57,12 +64,52 @@ int messageCount = 1;                // tells the number of the sent message
 //static uint64_t send_interval_ms;
 
 ////  I/Os definitions    ////
+#define SL1_GPIO  35                 // Level sensor connected to GPIO35
 #define PCNT_INPUT_SIG_IO   34       // Flow sensor connected to GPIO34
-#define EV2_GPIO   15  
-#define EV3_GPIO   13  
-#define EV4_GPIO   14  
-#define EV5_GPIO   12  
+#define P2_GPIO   33                 // Sanitizer pump P2 contact connected to GPIO33
+#define P1_GPIO   32                 // Sanitizer pump P1 contact connected to GPIO32
 #define LED   5                      // Status led connected to GPIO5
+
+// Create a timer to generate an ISR at a defined frequency in order to sample the system
+hw_timer_t * timer = NULL;
+#define OVF_MS 1000                      // The timer interrupt fires every second
+volatile bool new_status = false;       // When it's true a sensor has changed its value and it needs to be sent
+
+void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow every OVF_MS
+  // Read status of sensors  //
+  get_liters();
+  SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;
+
+  if( liters != old_liters || SL1_status != old_SL1_status ) 
+    new_status = true;
+
+  if(P1_status == 1) {
+    if(p1pulsescounter < 2*P1_pulses) {
+      digitalWrite(P1_GPIO, p1toggle);
+      p1toggle = !p1toggle;                       
+      p1pulsescounter++; 
+    }     
+    else {
+        P1_status = 0;
+        p1pulsescounter = 0;
+        new_status = true;    // update p1 status (bring it back to 0)
+    }   
+  }
+  if(P2_status == 1) {
+    if(p2pulsescounter < 2*P2_pulses) {
+      digitalWrite(P2_GPIO, p2toggle); 
+      p2toggle = !p2toggle;       
+      p2pulsescounter++;                      
+      }
+    else {
+      P2_status = 0;
+      p2pulsescounter = 0;
+      new_status = true;    // update p2 status (bring it back to 0)    
+    }
+  }  
+  old_liters = liters;
+  old_SL1_status = SL1_status;
+}
 
 static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
 {
@@ -88,10 +135,10 @@ static void MessageCallback(const char* payLoad, int size)
     received_msg_id = doc["message_id"];
     received_msg_type = doc["message_type"];
       if(received_msg_type == SET_VALUES) {
-          EV2_status = doc["EV2"];
-          EV3_status = doc["EV3"];
-          EV4_status = doc["EV4"];
-          EV5_status = doc["EV5"];
+          P1_status = doc["P1"];
+          P1_pulses = doc["P1_pulses"];
+          P2_status = doc["P2"];
+          P2_pulses = doc["P2_pulses"];
       }
     }
   }
@@ -186,15 +233,13 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
 
 void setup() {
   pinMode(PCNT_INPUT_SIG_IO, INPUT);                            // the output of the flow sensor is open collector (MUST USE EXTERNAL PULL UP!!)
-  pinMode(EV2_GPIO, INPUT);
-  pinMode(EV3_GPIO, OUTPUT);     
-  pinMode(EV4_GPIO, OUTPUT);
-  pinMode(EV5_GPIO, OUTPUT);
-  digitalWrite(EV2_GPIO, LOW);                                   // All electrovalves are initially off
-  digitalWrite(EV3_GPIO, LOW);
-  digitalWrite(EV4_GPIO, LOW);
-  digitalWrite(EV5_GPIO, LOW);
-  // configure status LED PWM functionalitites
+  pinMode(SL1_GPIO, INPUT);
+  pinMode(P1_GPIO, OUTPUT);     
+  pinMode(P2_GPIO, OUTPUT);
+  digitalWrite(P1_GPIO, LOW);                                   // P1 and P2 are initially off
+  digitalWrite(P2_GPIO, LOW);
+  SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;          // read the status of the level sensor
+  // configure LED PWM functionalitites
   ledcSetup(LED_CHANNEL, LED_PWM_FREQ, RESOLUTION);
   ledcAttachPin(LED, LED_CHANNEL);                              // Attach PWM module to status LED
   ledcWrite(LED_CHANNEL, BLINK_5HZ);                            // LED initially blinks at 5Hz
@@ -211,7 +256,7 @@ void setup() {
   WiFiManager wm;
   //wm.resetSettings();  // reset settings - wipe stored credentials for testing
   bool res;
-  res = wm.autoConnect("GENIALE brd3 setup"); // Generates a pwd-free ap for the user to connect and tell Wi-Fi credentials
+  res = wm.autoConnect("GENIALE brd1 setup"); // Generates a pwd-free ap for the user to connect and tell Wi-Fi credentials
   //res = wm.autoConnect("AutoConnectAP","password"); // Generates a pwd-protected ap for the user to connect and tell Wi-Fi credentials
   if(!res) {
       Serial.println("Failed to connect to wifi");
@@ -244,6 +289,18 @@ void setup() {
   
   randomSeed(analogRead(0));
   //send_interval_ms = millis();
+  /* Use 1st timer of 4 */
+  /* 1 tick take 1/(80MHZ/80) = 1us so we set divider 80 and count up */
+  timer = timerBegin(0, 80, true);
+  /* Attach onTimer function to our timer */
+  timerAttachInterrupt(timer, &onTimer, true);
+  /* Set alarm to call onTimer function every OVF_MS milliseconds. 
+  1 tick is 1us*/
+  /* Repeat the alarm (third parameter) */
+  timerAlarmWrite(timer, 1000*OVF_MS, true);
+  /* Start an alarm */
+  timerAlarmEnable(timer);
+  Serial.println("ISR Timer started");
   ledcWrite(LED_CHANNEL, OFF);
   Serial.println("Waiting for messages from HUB...");
 }
@@ -257,12 +314,11 @@ if (hasWifi && hasIoTHub)
       msgtosend["message_type"] = reply_type;
       msgtosend["device_id"] = DEVICE_ID;
       msgtosend["iot_module_software_version"] = SW_VERSION;
-      msgtosend["EV2"] = EV2_status;
-      msgtosend["EV3"] = EV3_status;                   
-      msgtosend["EV4"] = EV4_status;   
-      msgtosend["EV5"] = EV5_status;   
-      msgtosend["SPH1"] = pH_value;
-      msgtosend["FL2"] = liters;
+      msgtosend["SL1"] = SL1_status;                // Closed contact means LOW sanitizer level!
+      msgtosend["CRS1"] = chlorine_concentration;
+      msgtosend["FL1"] = liters;
+      msgtosend["P1"] = P1_status;
+      msgtosend["P2"] = P2_status;
       char out[256];
       int msgsize =serializeJson(msgtosend, out);
       //Serial.println(msgsize);
@@ -292,5 +348,10 @@ void loop() {
         ledcWrite(LED_CHANNEL, OFF);
         break;
     }
+  }
+  if(new_status == true) {
+    new_status = false;
+    send_message(STATUS, messageCount);
+    messageCount++;
   }
 }
