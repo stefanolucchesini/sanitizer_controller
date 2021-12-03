@@ -5,6 +5,9 @@
 #include <ArduinoJson.h>
 #include <ezTime.h>     
 
+#define DEBUG true // flag to turn on/off debugging over serial monitor
+#define DEBUG_SERIAL if(DEBUG)Serial
+
 //// PULSE COUNTER MODULE ////
 #define PCNT_FREQ_UNIT      PCNT_UNIT_0     // select ESP32 pulse counter unit 0 (out of 0 to 7 indipendent counting units)
                                             // https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/pcnt.html
@@ -115,20 +118,20 @@ static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
 {
   if (result == IOTHUB_CLIENT_CONFIRMATION_OK)
   {
-    //Serial.println("Send Confirmation Callback finished.");
+    //DEBUG_SERIAL.println("Send Confirmation Callback finished.");
   }
 }
 
 static void MessageCallback(const char* payLoad, int size)
 {
   ledcWrite(LED_CHANNEL, ON);
-  Serial.println("Received message from HUB");
+  DEBUG_SERIAL.println("Received message from HUB");
   if (size < 256) { 
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, payLoad);
     if (error) {
-      Serial.print(F("deserializeJson() failed: "));
-      Serial.println(error.f_str());
+      DEBUG_SERIAL.print(F("deserializeJson() failed: "));
+      DEBUG_SERIAL.println(error.f_str());
     }
     else {  
     new_request = true;
@@ -142,7 +145,7 @@ static void MessageCallback(const char* payLoad, int size)
       }
     }
   }
-  else Serial.println("Cannot parse message, too long!");
+  else DEBUG_SERIAL.println("Cannot parse message, too long!");
 }
 
 /* NOT USED - DEVICE TWIN CALLBACK
@@ -156,7 +159,7 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
   memcpy(temp, payLoad, size);
   temp[size] = '\0';
   // Display Twin message.
-  Serial.println(temp);
+  DEBUG_SERIAL.println(temp);
   free(temp);
 }
 */
@@ -244,11 +247,8 @@ void setup() {
   ledcAttachPin(LED, LED_CHANNEL);                              // Attach PWM module to status LED
   ledcWrite(LED_CHANNEL, BLINK_5HZ);                            // LED initially blinks at 5Hz
   initPulseCounter();
-  Serial.begin(115200);
-  Serial.println("ESP32 Device");
-  Serial.println("Initializing...");
-  Serial.println(" > WiFi");
-  Serial.println("Starting connecting WiFi.");
+  DEBUG_SERIAL.begin(115200);
+  DEBUG_SERIAL.println("Starting connecting WiFi.");
 
   delay(10);
 
@@ -259,26 +259,26 @@ void setup() {
   res = wm.autoConnect("GENIALE brd1 setup"); // Generates a pwd-free ap for the user to connect and tell Wi-Fi credentials
   //res = wm.autoConnect("AutoConnectAP","password"); // Generates a pwd-protected ap for the user to connect and tell Wi-Fi credentials
   if(!res) {
-      Serial.println("Failed to connect to wifi");
+      DEBUG_SERIAL.println("Failed to connect to wifi");
       delay(10000);
       ESP.restart();
   } 
   else {
       //if you get here you have connected to the WiFi    
-      Serial.println("Connected to wifi!");
+      DEBUG_SERIAL.println("Connected to wifi!");
       ledcWrite(LED_CHANNEL, ON);
       // Wait for ezTime to get its time synchronized
 	    waitForSync();
-      Serial.println("UTC Time in ISO8601: " + UTC.dateTime(ISO8601));
+      DEBUG_SERIAL.println("UTC Time in ISO8601: " + UTC.dateTime(ISO8601));
       hasWifi = true;
     }
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println(" > IoT Hub");
+  DEBUG_SERIAL.println("IP address: ");
+  DEBUG_SERIAL.println(WiFi.localIP());
+  DEBUG_SERIAL.println("IoT Hub init");
   if (!Esp32MQTTClient_Init((const uint8_t*)connectionString, true))
   {
     hasIoTHub = false;
-    Serial.println("Initializing IoT hub failed.");
+    DEBUG_SERIAL.println("Initializing IoT hub failed.");
     return;
   }
   hasIoTHub = true;
@@ -300,9 +300,9 @@ void setup() {
   timerAlarmWrite(timer, 1000*OVF_MS, true);
   /* Start an alarm */
   timerAlarmEnable(timer);
-  Serial.println("ISR Timer started");
+  DEBUG_SERIAL.println("ISR Timer started");
   ledcWrite(LED_CHANNEL, OFF);
-  Serial.println("Waiting for messages from HUB...");
+  DEBUG_SERIAL.println("Waiting for messages from HUB...");
 }
 
 void send_message(int reply_type, int msgid) {
@@ -321,11 +321,12 @@ if (hasWifi && hasIoTHub)
       msgtosend["P2"] = P2_status;
       char out[256];
       int msgsize =serializeJson(msgtosend, out);
-      //Serial.println(msgsize);
-      Serial.println("Sending message to HUB:");
-      Serial.println(out);
+      //DEBUG_SERIAL.println(msgsize);
+
       EVENT_INSTANCE* message = Esp32MQTTClient_Event_Generate(out, MESSAGE);
-      Esp32MQTTClient_SendEventInstance(message);
+      Esp32MQTTClient_SendEventInstance(message);      
+      DEBUG_SERIAL.println("Message sent to HUB:");
+      DEBUG_SERIAL.println(out);
       ledcWrite(LED_CHANNEL, OFF);
   }
 }
@@ -344,7 +345,7 @@ void loop() {
         send_message(STATUS, received_msg_id);
         break;
       default:
-        Serial.println("Invalid message type!");
+        DEBUG_SERIAL.println("Invalid message type!");
         ledcWrite(LED_CHANNEL, OFF);
         break;
     }
