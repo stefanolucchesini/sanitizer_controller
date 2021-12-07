@@ -30,7 +30,11 @@ volatile int p2pulsescounter = 0;                         //counter used to perf
 volatile int p1toggle = 1;                                //variable used for toggling pump 1 pin
 volatile int p2toggle = 1;                                //variable used for toggling pump 2 pin
 //// Chlorine sensor reading variable ////
-float chlorine_concentration = 0.1;                       // concentration of chlorine given by crs1 (range: 0.1 ppm - 20 ppm)
+float chlorine_concentration, old_chlorine_concentration; // concentration of chlorine given by crs1 (range: 0.1 ppm - 20 ppm)
+float mv = 0.816326;        // Vin = mv * ADC + qv
+float qv = 121.836734;
+#define CL2_SAMPLES 200                                   // Number of samples taken to give a voltage value
+#define CL2_INTERVAL 10                                   // Interval of time in ms between two successive samples
 // Level sensor status
 int SL1_status;                                           // 0: low level, 1: high level
 int old_SL1_status;
@@ -67,6 +71,7 @@ int messageCount = 1;                // tells the number of the sent message
 //static uint64_t send_interval_ms;
 
 ////  I/Os definitions    ////
+#define CRS2_GPIO   36               // Voltage measure from 4-20mA chlorine sensor GPIO36 (VP)
 #define SL1_GPIO  35                 // Level sensor connected to GPIO35
 #define PCNT_INPUT_SIG_IO   34       // Flow sensor connected to GPIO34
 #define P2_GPIO   33                 // Sanitizer pump P2 contact connected to GPIO33
@@ -82,8 +87,10 @@ void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow ever
   // Read status of sensors  //
   get_liters();
   SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;
+  // Read chlorine concentration
+  chlorine_concentration = read_Cl2_sensor();
 
-  if( liters != old_liters || SL1_status != old_SL1_status ) 
+  if( liters != old_liters || SL1_status != old_SL1_status || chlorine_concentration != old_chlorine_concentration ) 
     new_status = true;
 
   if(P1_status == 1) {
@@ -112,6 +119,7 @@ void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow ever
   }  
   old_liters = liters;
   old_SL1_status = SL1_status;
+  old_chlorine_concentration = chlorine_concentration;
 }
 
 static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
@@ -234,11 +242,27 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
       liters = ( OverflowCounter*PCNT_H_LIM_VAL + PulseCounter ) / PULSES_PER_LITER;
   }
 
+  float read_Cl2_sensor(){
+    float mean_current = 0;
+    float val, voltage_across_R24 = 0;
+    float R24 = 100.0; //ohm
+    // acquire CL2_SAMPLES samples and compute mean
+    for(int i = 0; i < CL2_SAMPLES; i++)  {
+        val = analogRead(CRS2_GPIO);
+        voltage_across_R24 = qv * val + qv;
+        mean_current += (voltage_across_R24 / R24);
+        delay(CL2_INTERVAL); 
+      }
+  DEBUG_SERIAL.println(String("Current in mA: ") + String(mean_current/CL2_SAMPLES, 2));
+  return roundf(mean_current/(CL2_SAMPLES/10)) / 10;   //return the current with a single decimal place
+  }
+
 void setup() {
-  pinMode(PCNT_INPUT_SIG_IO, INPUT);                            // the output of the flow sensor is open collector (MUST USE EXTERNAL PULL UP!!)
-  pinMode(SL1_GPIO, INPUT);
   pinMode(P1_GPIO, OUTPUT);     
   pinMode(P2_GPIO, OUTPUT);
+  pinMode(CRS2_GPIO, INPUT);  
+  pinMode(PCNT_INPUT_SIG_IO, INPUT);                            // the output of the flow sensor is open collector (MUST USE EXTERNAL PULL UP!!)
+  pinMode(SL1_GPIO, INPUT);
   digitalWrite(P1_GPIO, LOW);                                   // P1 and P2 are initially off
   digitalWrite(P2_GPIO, LOW);
   SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;          // read the status of the level sensor
