@@ -81,18 +81,12 @@ int messageCount = 1;                // tells the number of the sent message
 // Create a timer to generate an ISR at a defined frequency in order to sample the system
 hw_timer_t * timer = NULL;
 #define OVF_MS 1000                      // The timer interrupt fires every second
-volatile bool new_status = false;       // When it's true a sensor has changed its value and it needs to be sent
+volatile bool new_status = false;        // When it's true a sensor has changed its value and it needs to be sent
+volatile bool timetosample = false;      // flag that turns true when it's time to sample sensors (every OVF_MS)
 
 void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow every OVF_MS
-  // Read status of sensors  //
-  get_liters();
-  SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;
-  // Read chlorine concentration
-  chlorine_concentration = read_Cl2_sensor();
-
-  if( liters != old_liters || SL1_status != old_SL1_status || chlorine_concentration != old_chlorine_concentration ) 
-    new_status = true;
-
+  timetosample = true;
+  
   if(P1_status == 1) {
     if(p1pulsescounter < 2*P1_pulses) {
       digitalWrite(P1_GPIO, p1toggle);
@@ -117,9 +111,7 @@ void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow ever
       new_status = true;    // update p2 status (bring it back to 0)    
     }
   }  
-  old_liters = liters;
-  old_SL1_status = SL1_status;
-  old_chlorine_concentration = chlorine_concentration;
+
 }
 
 static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
@@ -253,7 +245,7 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
         mean_current += (voltage_across_R24 / R24);
         delay(CL2_INTERVAL); 
       }
-  DEBUG_SERIAL.println(String("Current in mA: ") + String(mean_current/CL2_SAMPLES, 2));
+  //DEBUG_SERIAL.println(String("Current in mA: ") + String(mean_current/CL2_SAMPLES, 2));
   return roundf(mean_current/(CL2_SAMPLES/10)) / 10;   //return the current with a single decimal place
   }
 
@@ -373,6 +365,19 @@ void loop() {
         ledcWrite(LED_CHANNEL, OFF);
         break;
     }
+  }
+  if(timetosample == true) {             // sensor values are sampled every SAMPLING_TIME seconds
+    timetosample = false;
+    // Read status of sensors  //
+    get_liters();
+    SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;
+    // Read chlorine concentration
+    chlorine_concentration = read_Cl2_sensor();
+    if( liters != old_liters || SL1_status != old_SL1_status || chlorine_concentration != old_chlorine_concentration ) 
+      new_status = true;
+    old_liters = liters;
+    old_SL1_status = SL1_status;
+    old_chlorine_concentration = chlorine_concentration;  
   }
   if(new_status == true) {
     new_status = false;
