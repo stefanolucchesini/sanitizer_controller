@@ -81,12 +81,16 @@ int messageCount = 1;                // tells the number of the sent message
 // Create a timer to generate an ISR at a defined frequency in order to sample the system
 hw_timer_t * timer = NULL;
 #define OVF_MS 1000                      // The timer interrupt fires every second
+#define TIME_TO_SAMPLE_PRESCALER 5       // Sensors are sampled every TIME_TO_SAMPLE_PRESCALER*OVF_MS
 volatile bool new_status = false;        // When it's true a sensor has changed its value and it needs to be sent
 volatile bool timetosample = false;      // flag that turns true when it's time to sample sensors (every OVF_MS)
-
+volatile int time2sample_counter = 0;
 void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow every OVF_MS
-  timetosample = true;
-  
+  time2sample_counter++;
+  if(time2sample_counter >= TIME_TO_SAMPLE_PRESCALER) {
+    timetosample = true;
+    time2sample_counter = 0;
+  }
   if(P1_status == 1) {
     if(p1pulsescounter < 2*P1_pulses) {
       digitalWrite(P1_GPIO, p1toggle);
@@ -111,7 +115,6 @@ void IRAM_ATTR onTimer(){            // Timer ISR, called on timer overflow ever
       new_status = true;    // update p2 status (bring it back to 0)    
     }
   }  
-
 }
 
 static void SendConfirmationCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result)
@@ -241,12 +244,15 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
     // acquire CL2_SAMPLES samples and compute mean
     for(int i = 0; i < CL2_SAMPLES; i++)  {
         val = analogRead(CRS2_GPIO);
-        voltage_across_R24 = qv * val + qv;
+        voltage_across_R24 = mv * val + qv;
+        if(val == 0) voltage_across_R24 = 0;           // in case of no current, put the mean current to 0
         mean_current += (voltage_across_R24 / R24);
         delay(CL2_INTERVAL); 
       }
+  //DEBUG_SERIAL.println(String("Raw ADC val: ") + String(val));    
   //DEBUG_SERIAL.println(String("Current in mA: ") + String(mean_current/CL2_SAMPLES, 2));
-  return roundf(mean_current/(CL2_SAMPLES/10)) / 10;   //return the current with a single decimal place
+  if(mean_current == 0) return -1;  // the current read by the device is below 4 mA, so the sensor is disconnected
+  else return roundf(mean_current/(CL2_SAMPLES/10)) / 10;   //return the current with a single decimal place
   }
 
 void setup() {
