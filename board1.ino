@@ -263,7 +263,7 @@ void setup() {
   pinMode(SL1_GPIO, INPUT);
   digitalWrite(P1_GPIO, LOW);                                   // P1 and P2 are initially off
   digitalWrite(P2_GPIO, LOW);
-  SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;          // read the status of the level sensor
+  SL1_status = digitalRead(SL1_GPIO);          // read the status of the level sensor
   // configure LED PWM functionalitites
   ledcSetup(LED_CHANNEL, LED_PWM_FREQ, RESOLUTION);
   ledcAttachPin(LED, LED_CHANNEL);                              // Attach PWM module to status LED
@@ -376,7 +376,7 @@ void loop() {
     timetosample = false;
     // Read status of sensors  //
     get_liters();
-    SL1_status = ( digitalRead(SL1_GPIO) == 0 ) ? 1 : 0;
+    SL1_status = digitalRead(SL1_GPIO);
     // Read chlorine concentration
     chlorine_concentration = read_Cl2_sensor();
     if( liters != old_liters || SL1_status != old_SL1_status || chlorine_concentration != old_chlorine_concentration ) 
