@@ -40,7 +40,8 @@ int SL1_status;                                           // 0: low level, 1: hi
 int old_SL1_status;
 //// firmware version of the device and device id ////
 #define SW_VERSION "0.1"
-#define DEVICE_ID "geniale board 1"     
+#define DEVICE_TYPE "SC1"     
+#define DEVICE_ID 1    
 //// Other handy variables ////
 volatile bool new_request = false;                        // flag that tells if a new request has arrived from the hub
 volatile int received_msg_id = 0;                         // used for ack mechanism
@@ -334,6 +335,7 @@ if (hasWifi && hasIoTHub)
       msgtosend["message_id"] = msgid;
       msgtosend["timestamp"] = UTC.dateTime(ISO8601);
       msgtosend["message_type"] = reply_type;
+      msgtosend["device_type"] = DEVICE_TYPE;
       msgtosend["device_id"] = DEVICE_ID;
       msgtosend["iot_module_software_version"] = SW_VERSION;
       msgtosend["SL1"] = SL1_status;                // Closed contact means LOW sanitizer level!
