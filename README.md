@@ -1,1 +1,1 @@
-![Firmware flowchart](SC1 fw Diagram.png)
+![Firmware flowchart](SC1 Code Diagram.png)
