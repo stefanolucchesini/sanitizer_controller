@@ -39,7 +39,7 @@ float qv = 121.836734;
 int SL1_status;                                           // 0: low level, 1: high level
 int old_SL1_status;
 //// firmware version of the device and device id ////
-#define SW_VERSION "0.1"
+#define SW_VERSION "0.2"
 #define DEVICE_TYPE "SC1"     
 #define DEVICE_ID 00000001
 //// Other handy variables ////
@@ -82,7 +82,7 @@ int messageCount = 1;                // tells the number of the sent message
 // Create a timer to generate an ISR at a defined frequency in order to sample the system
 hw_timer_t * timer = NULL;
 #define OVF_MS 1000                      // The timer interrupt fires every second
-#define TIME_TO_SAMPLE_PRESCALER 5       // Sensors are sampled every TIME_TO_SAMPLE_PRESCALER*OVF_MS
+#define TIME_TO_SAMPLE_PRESCALER 5       // Sensors are sampled every TIME_TO_SAMPLE_PRESCALER seconds
 volatile bool new_status = false;        // When it's true a sensor has changed its value and it needs to be sent
 volatile bool timetosample = false;      // flag that turns true when it's time to sample sensors (every OVF_MS)
 volatile int time2sample_counter = 0;
@@ -146,6 +146,7 @@ static void MessageCallback(const char* payLoad, int size)
           P1_pulses = doc["P1_pulses"];
           P2_status = doc["P2"];
           P2_pulses = doc["P2_pulses"];
+          if(doc["FL1"] == 0) Reset_PCNT();
       }
     }
   }
