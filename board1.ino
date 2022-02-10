@@ -39,9 +39,9 @@ float qv = 121.836734;
 int SL1_status;                                           // 0: low level, 1: high level
 int old_SL1_status;
 //// firmware version of the device and device id ////
-#define SW_VERSION "0.2"
+#define SW_VERSION "0.3"
 #define DEVICE_TYPE "SC1"     
-#define DEVICE_ID 00000001
+#define DEVICE_ID "00000001"
 //// Other handy variables ////
 volatile bool new_request = false;                        // flag that tells if a new request has arrived from the hub
 volatile int received_msg_id = 0;                         // used for ack mechanism
