@@ -39,7 +39,7 @@ float qv = 121.836734;
 int SL1_status;                                           // 0: low level, 1: high level
 int old_SL1_status;
 //// firmware version of the device and device id ////
-#define SW_VERSION "0.3"
+#define SW_VERSION "0.4"
 #define DEVICE_TYPE "SC1"     
 #define DEVICE_ID "00000001"
 //// Other handy variables ////
@@ -48,6 +48,7 @@ volatile int received_msg_id = 0;                         // used for ack mechan
 volatile int received_msg_type = -1;                      // if 0 the device is sending its status
                                                           // if 1 the HUB wants to change the status of the device (with the values passed in the message)
                                                           // if 2 the device ACKs the HUB in response to a command
+StaticJsonDocument<256> doc;                              // contains received message                                                         
 // defines for message type 
 #define STATUS 0
 #define SET_VALUES 1
@@ -131,7 +132,6 @@ static void MessageCallback(const char* payLoad, int size)
   ledcWrite(LED_CHANNEL, ON);
   DEBUG_SERIAL.println("Received message from HUB");
   if (size < 256) { 
-    StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, payLoad);
     if (error) {
       DEBUG_SERIAL.print(F("deserializeJson() failed: "));
@@ -334,7 +334,10 @@ if (hasWifi && hasIoTHub)
   {
       StaticJsonDocument<256> msgtosend;            // pre-allocate 256 bytes of memory for the json message
       msgtosend["message_id"] = msgid;
-      msgtosend["timestamp"] = UTC.dateTime(ISO8601);
+      if(reply_type == ACK_HUB)
+        msgtosend["timestamp"] = doc["timestamp"];
+      else  
+        msgtosend["timestamp"] = UTC.dateTime(ISO8601);
       msgtosend["message_type"] = reply_type;
       msgtosend["device_type"] = DEVICE_TYPE;
       msgtosend["device_id"] = DEVICE_ID;
