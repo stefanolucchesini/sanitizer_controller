@@ -48,7 +48,7 @@ volatile int received_msg_id = 0;                         // used for ack mechan
 volatile int received_msg_type = -1;                      // if 0 the device is sending its status
                                                           // if 1 the HUB wants to change the status of the device (with the values passed in the message)
                                                           // if 2 the device ACKs the HUB in response to a command
-StaticJsonDocument<256> doc;                              // contains received message                                                         
+StaticJsonDocument<512> doc;                              // contains received message                                                         
 // defines for message type 
 #define STATUS 0
 #define SET_VALUES 1
@@ -131,7 +131,7 @@ static void MessageCallback(const char* payLoad, int size)
 {
   ledcWrite(LED_CHANNEL, ON);
   DEBUG_SERIAL.println("Received message from HUB");
-  if (size < 256) { 
+  if (size < 512) { 
     DeserializationError error = deserializeJson(doc, payLoad);
     if (error) {
       DEBUG_SERIAL.print(F("deserializeJson() failed: "));
